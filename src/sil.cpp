@@ -202,6 +202,41 @@ void sil::bind(Socket socket, const char *service){
   }
 }
 
+
+sil::Socket sil::accept(sil::Socket socket, sil::socket_definition def , const char *host, const char *service){
+  struct addrinfo hints;
+
+  hints.ai_canonname = NULL;
+  hints.ai_flags = 0;
+  hints.ai_next = NULL;
+  hints.ai_protocol = 0;
+  hints.ai_family = EnumToMacro_Family(def.addr_family);
+  hints.ai_socktype = EnumToMacro_Type(def.socket_type);
+
+  struct addrinfo *result;
+  
+  int status = getaddrinfo(host, service, &hints, &result);
+
+    if (status != 0) {
+      fprintf(stderr, "DNS Error: %s\n", gai_strerror(status));
+      return -1;
+    }
+    
+    struct addrinfo *rp;
+    sil::Socket fd;
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+      fd  = ::accept(socket, rp->ai_addr, &rp->ai_addrlen);
+    if (fd == -1) {
+        PrintError("Binding failed via perror",
+                    "Binding failed via strerror: %s (Code %d)\n"); 
+        ::freeaddrinfo(result);
+        break;
+    }
+    
+    }
+    return fd;
+}
+
 ssize_t sil::sendTo (sil::Socket socket, const void *buf, size_t nbytes, int flags){
   ssize_t bytes_received = 0;
   struct sockaddr_storage add {};
@@ -273,7 +308,3 @@ void sil::shutdown(){
 }
 
 #endif
-
-int main(){
-  return 0;
-}

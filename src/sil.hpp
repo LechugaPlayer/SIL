@@ -31,6 +31,7 @@ struct socket_definition{
   Socket  connect  (const char *host, const char *service, socket_definition def);
   void    listen   (Socket socket, int backlog);
   void    bind     (Socket socket, const char *service);
+  Socket  accept(sil::Socket socket, sil::socket_definition def , const char *host, const char *service);
   ssize_t sendTo   (Socket socket, const void *buf, size_t nbytes, int flags = 0);
   ssize_t send     (Socket socket, const void* buf, size_t nbytes, int flags = 0);
   ssize_t recvFrom (Socket socket, void *buf, size_t nbytes, int flags = 0);
