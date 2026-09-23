@@ -80,22 +80,30 @@ int EnumToMacro_Type(sil::EType var){
     return fd;
   }
 
-  sil::Socket sil::connect(const char *host, const char *service, sil::socket_definition def){
-
+  sil::Socket sil::connect(const std::string *host,const std::string *service, sil::socket_definition def){
+//NOTE:sun_path holds 108 characters, and the last one should be a null terminator, add a check for that
     int fd = -1;
-  if(def.addr_family == sil::EFamily::LOCAL){
+  if(EnumToMacro_Family(def.addr_family) == AF_LOCAL){
+    
     fd = ::socket(EnumToMacro_Family(def.addr_family),EnumToMacro_Type(def.socket_type), 0);
       if(fd == -1){
         PrintError("Socket creation failed via perror",
                     "Socket creation failed via strerror: %s (Code: %d\n)");
+        ::close(fd);        
         return INVALID_SOCKET_HANDLE;
       }
 
       struct sockaddr_un addr;
-      ::memset(&addr, 0, sizeof(addr));
+      size_t max_bytes = sizeof(addr.sun_path) - 1;
+      ::memset(&addr, 0, max_bytes + 1);
       addr.sun_family = AF_LOCAL;
-      ::strncpy(addr.sun_path, host, sizeof(addr.sun_path) - 1);
       
+      if (host->length() > max_bytes) {
+        printf("String length is greater that 108 bytes\n");
+        return INVALID_SOCKET_HANDLE;
+      }
+      
+      host->copy(addr.sun_path, host->length());
       
     if (::connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
       
@@ -118,10 +126,10 @@ int EnumToMacro_Type(sil::EType var){
   hints.ai_socktype = EnumToMacro_Type(def.socket_type);
 
 
-  int status = getaddrinfo(host, service, &hints, &result);
+  int status = getaddrinfo(host->c_str(), service->c_str(), &hints, &result);
   if (status != 0) {
     
-    fprintf(stderr, "DNS Error: %s\n", gai_strerror(status));
+    fprintf(stderr, "DNS Error in connect: %s\n", gai_strerror(status));
     return INVALID_SOCKET_HANDLE;
   }
 
@@ -154,18 +162,18 @@ void sil::listen(Socket socket, int backlog){
   }
 }
 
-void sil::bind(Socket socket, const char *service){
+void sil::bind(Socket socket, socket_definition def,const std::string *service){
   
-  bool is_unix_path = (service[0] == '/' || service[0] == '.' || 
-                         (strlen(service) > 2 && service[1] == ':'));
+  
 
-  if (is_unix_path) {
+  if (EnumToMacro_Family(def.addr_family) == AF_LOCAL) {
     struct sockaddr_un addr;
     ::memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, service, sizeof(addr.sun_path) - 1);
+    addr.sun_family = EnumToMacro_Family(def.addr_family);
+    
 
-    if (::bind(socket, (struct sockaddr*)&addr, sizeof(addr)) == -1){
+    if (::bind(socket,reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1){
+      
           PrintError("Error binding socket via perror",
                        "Error binding socket via strerror: %s (Code: %d)\n");
           }
@@ -178,13 +186,13 @@ void sil::bind(Socket socket, const char *service){
     hints.ai_canonname = NULL;
     hints.ai_addr = NULL;
     hints.ai_next = NULL;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = EnumToMacro_Type(def.socket_type);
+    hints.ai_family = EnumToMacro_Family(def.addr_family);
 
     struct addrinfo *result;
-    int status = getaddrinfo(NULL, service, &hints, &result);
+    int status = getaddrinfo(NULL, service->c_str(), &hints, &result);
     if (status != 0) {
-      fprintf(stderr, "DNS Error: %s\n", gai_strerror(status));
+      fprintf(stderr, "DNS Error in binding: %s\n", gai_strerror(status));
       return;
     }
     
@@ -203,7 +211,33 @@ void sil::bind(Socket socket, const char *service){
 }
 
 
-sil::Socket sil::accept(sil::Socket socket, sil::socket_definition def , const char *host, const char *service){
+sil::Socket sil::accept(sil::Socket socket, sil::socket_definition def ,const std::string *host,const std::string *service){
+  Socket socket_result = -1;
+
+  if (EnumToMacro_Family(def.addr_family) == AF_LOCAL) {
+    sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr.sun_path));
+    
+    addr.sun_family = EnumToMacro_Family(def.addr_family);
+
+    size_t max_bytes = sizeof(addr.sun_path) - 1;
+    ::memset(&addr, 0, max_bytes + 1);
+    addr.sun_family = AF_LOCAL;
+    
+    if (host->length() > max_bytes) {
+      printf("String length is greater that 108 bytes\n");
+      return INVALID_SOCKET_HANDLE;
+    }
+
+    socket_result = ::accept(socket, reinterpret_cast<sockaddr*>(&addr), (socklen_t *)(host->length()));
+
+    if (socket_result == -1) {
+        PrintError("Accept failed via perror",
+                    "Accept failed via strerror: %s (Code %d)\n");
+        socket_result = INVALID_SOCKET_HANDLE; 
+    }
+    
+  }else{
   struct addrinfo hints;
 
   hints.ai_canonname = NULL;
@@ -215,38 +249,42 @@ sil::Socket sil::accept(sil::Socket socket, sil::socket_definition def , const c
 
   struct addrinfo *result;
   
-  int status = getaddrinfo(host, service, &hints, &result);
+  int status = getaddrinfo(host->c_str(), service->c_str(), &hints, &result);
 
     if (status != 0) {
-      fprintf(stderr, "DNS Error: %s\n", gai_strerror(status));
+      fprintf(stderr, "DNS Error in accept: %s\n", gai_strerror(status));
       return -1;
     }
     
     struct addrinfo *rp;
-    sil::Socket fd;
     for (rp = result; rp != NULL; rp = rp->ai_next) {
-      fd  = ::accept(socket, rp->ai_addr, &rp->ai_addrlen);
-    if (fd == -1) {
-        PrintError("Binding failed via perror",
-                    "Binding failed via strerror: %s (Code %d)\n"); 
+      socket_result  = ::accept(socket, rp->ai_addr, &rp->ai_addrlen);
+    if (socket_result == -1) {
+        PrintError("Accept failed via perror",
+                    "Accept failed via strerror: %s (Code %d)\n"); 
         ::freeaddrinfo(result);
+        socket_result = INVALID_SOCKET_HANDLE;
         break;
     }
     
     }
-    return fd;
+    
+    
+  }
+  
+    return socket_result;
 }
 
 ssize_t sil::sendTo (sil::Socket socket, const void *buf, size_t nbytes, int flags){
   ssize_t bytes_received = 0;
-  struct sockaddr_storage add {};
-  socklen_t len = sizeof(add);
-  ::getpeername(socket, (struct sockaddr *)&add, (socklen_t *)&len);
+  struct sockaddr_storage addr {};
+  socklen_t len = sizeof(addr);
+  ::getpeername(socket, reinterpret_cast<sockaddr*>(&addr), (socklen_t *)&len);
   
-  bytes_received = ::sendto(socket, buf, nbytes, flags, (struct sockaddr *)&add, len);
+  bytes_received = ::sendto(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&addr), len);
   if (bytes_received == -1) {
           PrintError("Send failed via perror",
-                      "Send failed via strerror: %s (Code %d) ");
+                      "Send failed via strerror: %s (Code %d) \n");
   }
   return  bytes_received;
 }
@@ -257,10 +295,10 @@ ssize_t sil::recvFrom(sil::Socket socket, void *buf, size_t nbytes, int flags){
   struct sockaddr_storage addr {};
   socklen_t len = sizeof(addr);
   
-  bytes_written = ::recvfrom(socket, buf, nbytes, flags, (struct sockaddr *)&addr, &len);
+  bytes_written = ::recvfrom(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&addr), &len);
   if (bytes_written == -1) {
           PrintError("Receive failed via perror",
-                      "Receive failed via strerror: %s (Code %d) ");
+                      "Receive failed via strerror: %s (Code %d)\n");
   }
 
   return bytes_written;
@@ -270,10 +308,10 @@ ssize_t sil::recvFrom(sil::Socket socket, void *buf, size_t nbytes, int flags){
 ssize_t sil::send (sil::Socket socket, const void *buf, size_t nbytes, int flags){
   ssize_t bytes_received = 0;
    
-  bytes_received = ::sendto(socket, buf, nbytes, flags, 0, 0);
+  bytes_received = ::send(socket, buf, nbytes, flags);
   if (bytes_received == -1) {
           PrintError("Send failed via perror",
-                      "Send failed via strerror: %s (Code %d) ");
+                      "Send failed via strerror: %s (Code %d)\n");
   }
   return  bytes_received;
 }
@@ -285,7 +323,7 @@ ssize_t sil::recv(sil::Socket socket, void *buf, size_t nbytes, int flags){
   bytes_written = ::recvfrom(socket, buf, nbytes, flags, 0, 0);
   if (bytes_written == -1) {
           PrintError("Receive failed via perror",
-                      "Receive failed via strerror: %s (Code %d) ");
+                      "Receive failed via strerror: %s (Code %d)\n");
   }
 
   return bytes_written;
@@ -295,7 +333,7 @@ ssize_t sil::recv(sil::Socket socket, void *buf, size_t nbytes, int flags){
 void sil::close(sil::Socket socket){
   if (::close(socket) == -1) {
           PrintError("Socket closure failed via perror",
-                      "Socket closure failed via strerror: %s (Code %d) ");
+                      "Socket closure failed via strerror: %s (Code %d)\n");
   }
 }
 
