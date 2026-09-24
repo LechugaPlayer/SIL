@@ -74,8 +74,8 @@ struct Address{
   friend  ssize_t recvMsgFrom(Socket socket, std::string &msg, Address &address, int flags);
   
   private:  
-  sockaddr_storage addr;
-  socklen_t len;
+  sockaddr_storage addr {};
+  socklen_t len {};
   void resolve(const char *host, const char *service, socket_definition def);
 };
 

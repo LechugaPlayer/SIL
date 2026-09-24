@@ -46,21 +46,25 @@ int EnumToMacro_Type(sil::EType var){
       
     case sil::EType::STREAM:
       return SOCK_STREAM;
-      
+            
       default:
       return -1;
     }
 }
-struct Address{
-  private:
-    
-  void resolve(const char* host, const char *service, sil::socket_definition def){
+
+  void sil::Address::resolve(const char* host, const char *service, sil::socket_definition def){
   
     if (def.addr_family == sil::EFamily::LOCAL) {
-      struct sockaddr_un addr;
+         if (host == nullptr) {
+            fprintf(stderr,
+                    "AF_UNIX address requires a socket path\n");
+            return;
+        }
+        
+      struct sockaddr_un addr{};
       addr.sun_family = AF_LOCAL;
       
-      size_t max_length = sizeof(addr.sun_family - 1);
+      size_t max_length = sizeof(addr.sun_family) - 1;
       if (strlen(host) > max_length) {
 
         return;
@@ -69,6 +73,9 @@ struct Address{
       memset(addr.sun_path, 0, strlen(host));
       strcpy(addr.sun_path, host);
       
+      
+      std::memcpy(&this->addr, &addr, sizeof(addr));
+      this->len  = max_length;
     }else{
       struct addrinfo hints;
 
@@ -80,16 +87,28 @@ struct Address{
       hints.ai_addrlen = 0;
       hints.ai_socktype = EnumToMacro_Type(def.socket_type);
       hints.ai_family = EnumToMacro_Family(def.addr_family);
-      struct addrinfo* result;
+      struct addrinfo* result = nullptr;
       int error;
       
-      error = getaddrinfo(host, service, &hints, &result);
+      error = ::getaddrinfo(host, service, &hints, &result);
       if (error == -1){
           ::gai_strerror(error);
+          return;
       }
+      if (result == nullptr) {
+        printf("No suitable address was found\n");
+      }
+      if(result->ai_addrlen > sizeof(this->addr)){
+        printf("Resolved address is too large\n");
+        ::freeaddrinfo(result);
+        return;
+      }
+      std::memcpy(&this->addr, result->ai_addr, result->ai_addrlen );
+      this->len = static_cast<socklen_t>(result->ai_addrlen);
+
+      ::freeaddrinfo(result);
     }
   }
-};
 
 //TODO: EError is not implemented because I haven't found a suitable abstraction,
 // for now the library prints the error with PrintError()
@@ -238,11 +257,12 @@ void sil::bind(Socket socket, socket_definition def,const std::string *service){
     if (::bind(socket, rp->ai_addr, rp->ai_addrlen) == -1) {
         PrintError("Binding failed via perror",
                     "Binding failed via strerror: %s (Code %d)\n"); 
-        ::freeaddrinfo(result);
+        
         break;
     }
     
     }
+        ::freeaddrinfo(result);
   }
 }
 
