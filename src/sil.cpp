@@ -1,5 +1,4 @@
 #include "sil.hpp"
-#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdio>
@@ -48,9 +47,6 @@ int EnumToMacro_Type(sil::EType var){
     case sil::EType::STREAM:
       return SOCK_STREAM;
       
-    case sil::EType::RAW:
-        return SOCK_RAW;
-    
       default:
       return -1;
     }
@@ -62,7 +58,6 @@ struct Address{
   
     if (def.addr_family == sil::EFamily::LOCAL) {
       struct sockaddr_un addr;
-      socklen_t len;
       addr.sun_family = AF_LOCAL;
       
       size_t max_length = sizeof(addr.sun_family - 1);
@@ -316,10 +311,10 @@ sil::Socket sil::accept(sil::Socket socket, sil::socket_definition def ,const st
     return socket_result;
 }
 
-ssize_t sil::sendRawTo(Socket socket, const void *buf, size_t nbytes, Address *addr, int flags){
+ssize_t sil::sendRawTo(Socket socket, const void *buf, size_t nbytes, Address &addr, int flags){
   ssize_t bytes_received = 0;
   
-  bytes_received = ::sendto(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&addr->addr), *addr->len);
+  bytes_received = ::sendto(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&addr.addr), addr.len);
   if (bytes_received == -1) {
           PrintError("Send failed via perror",
                       "Send failed via strerror: %s (Code %d) \n");
@@ -328,10 +323,10 @@ ssize_t sil::sendRawTo(Socket socket, const void *buf, size_t nbytes, Address *a
 }
 
 
-ssize_t sil::recvRawFrom(sil::Socket socket, void *buf, size_t nbytes, sil::Address *address, int flags){
+ssize_t sil::recvRawFrom(sil::Socket socket, void *buf, size_t nbytes, sil::Address &address, int flags){
   ssize_t bytes_written = 0;
   
-  bytes_written = ::recvfrom(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&address->addr), address->len);
+  bytes_written = ::recvfrom(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&address.addr), &address.len);
   if (bytes_written == -1) {
           PrintError("Receive failed via perror",
                       "Receive failed via strerror: %s (Code %d)\n");
@@ -365,22 +360,21 @@ ssize_t sil::recvRaw(sil::Socket socket, void *buf, size_t nbytes, int flags){
   return bytes_written;
 }
 
+  ssize_t sil::sendMsgTo(sil::Socket socket, const std::string &msg, sil::Address &address, int flags){
+    
   ssize_t bytes_received = 0;
-  ssize_t sendMsgTo(sil::Socket socket, const std::string *msg, sil::Address *address, int flags = 0){
-  
   if (bytes_received == -1) {
-  bytes_received = ::sendto(socket, msg->c_str(), msg->length(), flags, reinterpret_cast<sockaddr*>(address->addr), *address->len);
+  bytes_received = ::sendto(socket, msg.c_str(), msg.length(), flags, reinterpret_cast<sockaddr*>(&address.addr), address.len);
           PrintError("Send failed via perror",
                       "Send failed via strerror: %s (Code %d) \n");
   }
   return  bytes_received;  
 }
   
-  ssize_t sendMsg     (sil::Socket socket, const std::string *msg, int flags = 0){
-    
+  ssize_t sil::sendMsg(sil::Socket socket, const std::string &msg, int flags){
   ssize_t bytes_received = 0;
    
-  bytes_received = ::send(socket, msg->c_str(), msg->length(), flags);
+  bytes_received = ::send(socket, msg.c_str(), msg.length(), flags);
   if (bytes_received == -1) {
           PrintError("Send failed via perror",
                       "Send failed via strerror: %s (Code %d)\n");
@@ -388,29 +382,30 @@ ssize_t sil::recvRaw(sil::Socket socket, void *buf, size_t nbytes, int flags){
   return  bytes_received;
   }
   
-  ssize_t recvMsgFrom (sil::Socket socket, std::string *msg, sil::Address *address, int flags = 0){
-    
-  ssize_t bytes_written = 0;
+  ssize_t sil::recvMsgFrom (sil::Socket socket, std::string &msg, sil::Address &address, int flags){
+  char buf[MAX_BUF_SIZE];
   
-  bytes_written = ::recvfrom(socket, const_cast<char*>(msg->c_str()), msg->length(), flags, reinterpret_cast<sockaddr*>(&address->addr), address->len);
+  address.len =  sizeof(address.addr);
+  ssize_t bytes_written = 0;
+  bytes_written = ::recvfrom(socket, buf, MAX_BUF_SIZE, flags, reinterpret_cast<sockaddr*>(&address.addr), &address.len);
   if (bytes_written == -1) {
           PrintError("Receive failed via perror",
                       "Receive failed via strerror: %s (Code %d)\n");
   }
-  
+  msg.assign(buf, bytes_written);
   return bytes_written;
   }
   
-  ssize_t recvMsg     (sil::Socket socket, std::string *msg, int flags = 0){
-    
+  ssize_t sil::recvMsg(sil::Socket socket, std::string &msg, int flags){
+  char buf[MAX_BUF_SIZE];  
   ssize_t bytes_written = 0;
   
-  bytes_written = ::recvfrom(socket, const_cast<char*>(msg->c_str()), msg->length(), flags, 0, 0);
+  bytes_written = ::recvfrom(socket, buf, MAX_BUF_SIZE, flags, 0, 0);
   if (bytes_written == -1) {
           PrintError("Receive failed via perror",
                       "Receive failed via strerror: %s (Code %d)\n");
   }
-
+  msg.assign(buf);
   return bytes_written;
   }
 

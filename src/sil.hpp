@@ -10,6 +10,7 @@ namespace sil{
 
 using Socket  = intptr_t;
 constexpr Socket INVALID_SOCKET_HANDLE = -1;
+constexpr int MAX_BUF_SIZE = 100;
 
  enum class EFamily{
   LOCAL,
@@ -20,8 +21,7 @@ constexpr Socket INVALID_SOCKET_HANDLE = -1;
 
  enum class EType{
   STREAM,
-  DATAGRAM,
-  RAW  
+  DATAGRAM
  };
 
 struct socket_definition{
@@ -29,7 +29,28 @@ struct socket_definition{
  EType socket_type;
 };
 
+struct Address;
 
+  void    init     ();
+  void    shutdown ();
+  Socket  socket   (socket_definition def);
+  Socket  connect  (const std::string *host,const  std::string *service, socket_definition def);
+  void    listen   (Socket socket, int backlog);
+  void    bind     (Socket socket, socket_definition def,const std::string *service);
+  Socket  accept   (Socket socket, socket_definition def ,const std::string *host,const std::string *service);
+
+  ssize_t sendRawTo   (Socket socket, const void *buf, size_t nbytes, Address &addr, int flags = 0);
+  ssize_t sendRaw     (Socket socket, const void *buf, size_t nbytes, int flags = 0);
+  ssize_t recvRawFrom (Socket socket, void *buf, size_t nbytes, Address &addr, int flags = 0);
+  ssize_t recvRaw     (Socket socket, void *buf, size_t nbytes, int flags = 0);
+
+
+  
+  ssize_t sendMsgTo   (Socket socket, const std::string &msg, Address &address, int flags = 0);
+  ssize_t sendMsg     (Socket socket, const std::string &msg, int flags = 0);
+  ssize_t recvMsgFrom (Socket socket, std::string &msg, Address &address, int flags = 0);
+  ssize_t recvMsg     (Socket socket, std::string &msg, int flags = 0);
+  void    close       (Socket socket);
 
 struct Address{
  public:
@@ -47,31 +68,17 @@ struct Address{
    resolve(nullptr, serviceStr.c_str(), def);
   }
   
+  friend  ssize_t sendRawTo  (Socket socket, const void *buf, size_t nbytes, Address &addr, int flags);
+  friend  ssize_t recvRawFrom(Socket socket, void *buf, size_t nbytes, Address &addr, int flags);
+  friend  ssize_t sendMsgTo  (Socket socket, const std::string &msg, Address &address, int flags);
+  friend  ssize_t recvMsgFrom(Socket socket, std::string &msg, Address &address, int flags);
   
-  sockaddr_storage *addr;
-  socklen_t *len;
+  private:  
+  sockaddr_storage addr;
+  socklen_t len;
   void resolve(const char *host, const char *service, socket_definition def);
 };
 
-  void    init     ();
-  void    shutdown ();
-  Socket  socket   (socket_definition def);
-  Socket  connect  (const std::string *host,const  std::string *service, socket_definition def);
-  void    listen   (Socket socket, int backlog);
-  void    bind     (Socket socket, socket_definition def,const std::string *service);
-  Socket  accept   (Socket socket, socket_definition def ,const std::string *host,const std::string *service);
 
-  ssize_t sendRawTo   (Socket socket, const void *buf, size_t nbytes, Address *addr, int flags = 0);
-  ssize_t sendRaw     (Socket socket, const void *buf, size_t nbytes, int flags = 0);
-  ssize_t recvRawFrom (Socket socket, void *buf, size_t nbytes, Address *addr, int flags = 0);
-  ssize_t recvRaw     (Socket socket, void *buf, size_t nbytes, int flags = 0);
-
-
-  
-  ssize_t sendMsgTo   (Socket socket, const std::string *msg, Address *address, int flags = 0);
-  ssize_t sendMsg     (Socket socket, const std::string *msg, int flags = 0);
-  ssize_t recvMsgFrom (Socket socket, std::string *msg, Address *address, int flags = 0);
-  ssize_t recvMsg     (Socket socket, std::string *msg, int flags = 0);
-  void    close       (Socket socket);
   
 }
