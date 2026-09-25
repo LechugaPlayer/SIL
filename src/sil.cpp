@@ -52,7 +52,7 @@ int EnumToMacro_Type(sil::EType var){
     }
 }
 
-  void sil::Address::resolve(const char* host, const char *service, sil::socket_definition def){
+  void sil::SockAddr::resolve(const char* host, const char *service, sil::SocketDefinition def){
   
     if (def.addr_family == sil::EFamily::LOCAL) {
          if (host == nullptr) {
@@ -88,8 +88,10 @@ int EnumToMacro_Type(sil::EType var){
       hints.ai_socktype = EnumToMacro_Type(def.socket_type);
       hints.ai_family = EnumToMacro_Family(def.addr_family);
       struct addrinfo* result = nullptr;
+      struct addrinfo* rp = nullptr;
       int error;
       
+  for (rp = result; rp != NULL; rp = rp->ai_next) {
       error = ::getaddrinfo(host, service, &hints, &result);
       if (error == -1){
           ::gai_strerror(error);
@@ -98,16 +100,19 @@ int EnumToMacro_Type(sil::EType var){
       if (result == nullptr) {
         printf("No suitable address was found\n");
       }
+      
       if(result->ai_addrlen > sizeof(this->addr)){
         printf("Resolved address is too large\n");
         ::freeaddrinfo(result);
         return;
       }
+      
       std::memcpy(&this->addr, result->ai_addr, result->ai_addrlen );
       this->len = static_cast<socklen_t>(result->ai_addrlen);
 
       ::freeaddrinfo(result);
     }
+  }
   }
 
 //TODO: EError is not implemented because I haven't found a suitable abstraction,
@@ -119,7 +124,7 @@ int EnumToMacro_Type(sil::EType var){
         printf(strerror_msg, strerror(saved_errno), saved_errno);
   }
   
-  sil::Socket sil::socket(sil::socket_definition def){
+  sil::Socket sil::socket(sil::SocketDefinition def){
     
     int fd = ::socket(EnumToMacro_Family(def.addr_family),
                           EnumToMacro_Type(def.socket_type),
@@ -134,79 +139,18 @@ int EnumToMacro_Type(sil::EType var){
     
     return fd;
   }
+  
+  bool sil::connect(sil::Socket socket, sil::SockAddr
+                 &address){
 
-  sil::Socket sil::connect(const std::string *host,const std::string *service, sil::socket_definition def){
-    
     int fd = -1;
-  if(EnumToMacro_Family(def.addr_family) == AF_LOCAL){
-    
-    fd = ::socket(EnumToMacro_Family(def.addr_family),EnumToMacro_Type(def.socket_type), 0);
-      if(fd == -1){
-        PrintError("Socket creation failed via perror",
-                    "Socket creation failed via strerror: %s (Code: %d\n)");
-        return INVALID_SOCKET_HANDLE;
-      }
+    fd = ::connect(socket, (struct sockaddr *)&address.addr , address.len);
 
-      struct sockaddr_un addr;
-      size_t max_bytes = sizeof(addr.sun_path) - 1;
-      ::memset(&addr, 0, max_bytes + 1);
-      addr.sun_family = AF_LOCAL;
-      
-      if (host->length() > max_bytes) {
-        printf("String length is greater that 108 bytes\n");
-        ::close(fd);
-        return INVALID_SOCKET_HANDLE;
-      }
-      
-      host->copy(addr.sun_path, host->length());
-      
-    if (::connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
-      
-        PrintError("Error opening file failed via perror",
-                    "Error opening file failed via strerror: %s (Code: %d\n)");
-        ::close(fd);        
-        return INVALID_SOCKET_HANDLE;
-  }
-    return fd;
-  }
-  
-  struct addrinfo hints;
-  struct addrinfo *result, *rp;
-  
-  memset(&hints, 0, sizeof(struct addrinfo));
-  hints.ai_canonname = NULL;
-  hints.ai_addr = NULL;
-  hints.ai_next = NULL;
-  hints.ai_family = EnumToMacro_Family(def.addr_family);
-  hints.ai_socktype = EnumToMacro_Type(def.socket_type);
-
-
-  int status = getaddrinfo(host->c_str(), service->c_str(), &hints, &result);
-  if (status != 0) {
-    
-    fprintf(stderr, "DNS Error in connect: %s\n", gai_strerror(status));
-    return INVALID_SOCKET_HANDLE;
-  }
-
-  for (rp = result; rp != NULL; rp = rp->ai_next) {
-    fd = ::socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-    if (fd ==  -1) {
-      continue;/* On error try next address*/
+    if (fd == -1) {
+      return false;
+    }else{
+      return true;
     }
-
-    if(::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0){
-        break;
-    }
-      ::close(fd); 
-  }
-
-  ::freeaddrinfo(result);
-  if (fd  == -1) {
-    printf("Couldn't connect to any socket\n");
-    return INVALID_SOCKET_HANDLE;
-  }
-  
-  return fd; 
 }
 
 void sil::listen(Socket socket, int backlog){
@@ -217,121 +161,33 @@ void sil::listen(Socket socket, int backlog){
   }
 }
 
-void sil::bind(Socket socket, socket_definition def,const std::string *service){
-  
-  
+bool sil::bind(sil::Socket socket, sil::SockAddr &address){
+   int result = -1;
 
-  if (EnumToMacro_Family(def.addr_family) == AF_LOCAL) {
-    struct sockaddr_un addr;
-    ::memset(&addr, 0, sizeof(addr));
-    addr.sun_family = EnumToMacro_Family(def.addr_family);
-    
+   result = ::bind(socket, reinterpret_cast<sockaddr*>(&address.addr), address.len);
 
-    if (::bind(socket,reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1){
-      
-          PrintError("Error binding socket via perror",
-                       "Error binding socket via strerror: %s (Code: %d)\n");
-          }
-          
-  }else{
-    
-    struct addrinfo hints;
-    
-    ::memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_canonname = NULL;
-    hints.ai_addr = NULL;
-    hints.ai_next = NULL;
-    hints.ai_socktype = EnumToMacro_Type(def.socket_type);
-    hints.ai_family = EnumToMacro_Family(def.addr_family);
-
-    struct addrinfo *result;
-    int status = getaddrinfo(NULL, service->c_str(), &hints, &result);
-    if (status != 0) {
-      fprintf(stderr, "DNS Error in binding: %s\n", gai_strerror(status));
-      return;
-    }
-    
-    struct addrinfo *rp;
-    for (rp = result; rp != NULL; rp = rp->ai_next) {
-      
-    if (::bind(socket, rp->ai_addr, rp->ai_addrlen) == -1) {
-        PrintError("Binding failed via perror",
-                    "Binding failed via strerror: %s (Code %d)\n"); 
-        
-        break;
-    }
-    
-    }
-        ::freeaddrinfo(result);
-  }
+   if (result == -1) {
+     return false;
+   }else{
+   return true;
+   }
 }
 
 
-sil::Socket sil::accept(sil::Socket socket, sil::socket_definition def ,const std::string *host,const std::string *service){
+sil::Socket sil::accept(sil::Socket socket, sil::SockAddr &address){
   Socket socket_result = -1;
-
-  if (EnumToMacro_Family(def.addr_family) == AF_LOCAL) {
-    sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr.sun_path));
-    
-    addr.sun_family = EnumToMacro_Family(def.addr_family);
-
-    size_t max_bytes = sizeof(addr.sun_path) - 1;
-    ::memset(&addr, 0, max_bytes + 1);
-    addr.sun_family = AF_LOCAL;
-    
-    if (host->length() > max_bytes) {
-      printf("String length is greater that 108 bytes\n");
-      return sil::INVALID_SOCKET_HANDLE;
-    }
-
-    socket_result = ::accept(socket, reinterpret_cast<sockaddr*>(&addr), (socklen_t *)(host->length()));
+  //TODO: maybe address.len should be initialized
+    socket_result = ::accept(socket, reinterpret_cast<sockaddr*>(&address.addr), &address.len);
 
     if (socket_result == -1) {
         PrintError("Accept failed via perror",
                     "Accept failed via strerror: %s (Code %d)\n");
         socket_result = sil::INVALID_SOCKET_HANDLE; 
     }
-    
-  }else{
-  struct addrinfo hints;
-
-  hints.ai_canonname = NULL;
-  hints.ai_flags = 0;
-  hints.ai_next = NULL;
-  hints.ai_protocol = 0;
-  hints.ai_family = EnumToMacro_Family(def.addr_family);
-  hints.ai_socktype = EnumToMacro_Type(def.socket_type);
-
-  struct addrinfo *result;
-  
-  int status = getaddrinfo(host->c_str(), service->c_str(), &hints, &result);
-
-    if (status != 0) {
-      fprintf(stderr, "DNS Error in accept: %s\n", gai_strerror(status));
-      return sil::INVALID_SOCKET_HANDLE;
-    }
-    
-    struct addrinfo *rp;
-    for (rp = result; rp != NULL; rp = rp->ai_next) {
-      socket_result  = ::accept(socket, rp->ai_addr, &rp->ai_addrlen);
-    if (socket_result == -1) {
-        PrintError("Accept failed via perror",
-                    "Accept failed via strerror: %s (Code %d)\n"); 
-        ::freeaddrinfo(result);
-        socket_result = sil::INVALID_SOCKET_HANDLE;
-        break;
-    }
-    
-    }
-    
-    
-  }
-  
     return socket_result;
 }
 
-ssize_t sil::sendRawTo(Socket socket, const void *buf, size_t nbytes, Address &addr, int flags){
+ssize_t sil::sendRawTo(Socket socket, const void *buf, size_t nbytes, SockAddr &addr, int flags){
   ssize_t bytes_received = 0;
   
   bytes_received = ::sendto(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&addr.addr), addr.len);
@@ -343,7 +199,7 @@ ssize_t sil::sendRawTo(Socket socket, const void *buf, size_t nbytes, Address &a
   return  bytes_received;
 }
 
-ssize_t sil::recvRawFrom(sil::Socket socket, void *buf, size_t nbytes, sil::Address &address, int flags){
+ssize_t sil::recvRawFrom(sil::Socket socket, void *buf, size_t nbytes, sil::SockAddr &address, int flags){
   ssize_t bytes_written = 0;
   address.len =  sizeof(address.addr);
   bytes_written = ::recvfrom(socket, buf, nbytes, flags, reinterpret_cast<sockaddr*>(&address.addr), &address.len);
@@ -380,7 +236,8 @@ ssize_t sil::recvRaw(sil::Socket socket, void *buf, size_t nbytes, int flags){
   return bytes_written;
 }
 
-  ssize_t sil::sendMsgTo(sil::Socket socket, const std::string &msg, sil::Address &address, int flags){
+  ssize_t sil::sendMsgTo(sil::Socket socket, const std::string &msg, sil::SockAddr
+                       &address, int flags){
     
   ssize_t bytes_sent = 0;
   bytes_sent = ::sendto(socket, msg.c_str(), msg.length(), flags, reinterpret_cast<sockaddr*>(&address.addr), address.len);
@@ -405,7 +262,7 @@ ssize_t sil::recvRaw(sil::Socket socket, void *buf, size_t nbytes, int flags){
   return  bytes_sent;
   }
   
-  ssize_t sil::recvMsgFrom (sil::Socket socket, std::string &msg, sil::Address &address, int flags){
+  ssize_t sil::recvMsgFrom (sil::Socket socket, std::string &msg, sil::SockAddr &address, int flags){
   char buf[MAX_BUF_SIZE];
   address.len =  sizeof(address.addr);
   ssize_t bytes_written = 0;
