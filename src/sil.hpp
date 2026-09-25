@@ -36,7 +36,7 @@ struct SockAddr
   void    shutdown ();
   Socket  socket   (SocketDefinition def);
   bool    connect  (Socket socket, SockAddr &address);
-  void    listen   (Socket socket, int backlog);
+  bool    listen   (Socket socket, int backlog);
   bool    bind     (Socket socket, SockAddr &address);
   Socket  accept   (Socket socket, SockAddr &adress);
 
@@ -49,7 +49,7 @@ struct SockAddr
   ssize_t sendMsg     (Socket socket, const std::string &msg, int flags = 0);
   ssize_t recvMsgFrom (Socket socket, std::string &msg, SockAddr &address, int flags = 0);
   ssize_t recvMsg     (Socket socket, std::string &msg, int flags = 0);
-  void    close       (Socket socket);
+  bool    close       (Socket socket);
 
 struct SockAddr
 {

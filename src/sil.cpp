@@ -73,7 +73,6 @@ int EnumToMacro_Type(sil::EType var){
       memset(addr.sun_path, 0, strlen(host));
       strcpy(addr.sun_path, host);
       
-      
       std::memcpy(&this->addr, &addr, sizeof(addr));
       this->len  = max_length;
     }else{
@@ -116,7 +115,7 @@ int EnumToMacro_Type(sil::EType var){
   }
 
 //TODO: EError is not implemented because I haven't found a suitable abstraction,
-// for now the library prints the error with PrintError()
+// for now the a bool is returned indicating success or failure
   void PrintError(const char* perror_msg, const char *strerror_msg){
         int saved_errno {};
         saved_errno = errno;
@@ -126,13 +125,10 @@ int EnumToMacro_Type(sil::EType var){
   
   sil::Socket sil::socket(sil::SocketDefinition def){
     
-    int fd = ::socket(EnumToMacro_Family(def.addr_family),
+    sil::Socket fd = ::socket(EnumToMacro_Family(def.addr_family),
                           EnumToMacro_Type(def.socket_type),
                            0);
-    
   if (fd == -1) {
-    PrintError("Error creating socket via perror",
-                "Error creating socket via strerror: %s (Code :%d)\n");
 
       return INVALID_SOCKET_HANDLE;
   }
@@ -140,33 +136,26 @@ int EnumToMacro_Type(sil::EType var){
     return fd;
   }
   
-  bool sil::connect(sil::Socket socket, sil::SockAddr
-                 &address){
-
-    int fd = -1;
-    fd = ::connect(socket, (struct sockaddr *)&address.addr , address.len);
-
-    if (fd == -1) {
+  bool sil::connect(sil::Socket socket, sil::SockAddr &address){
+    
+    if (::connect(socket, (struct sockaddr *)&address.addr , address.len) == -1){
       return false;
     }else{
       return true;
     }
 }
 
-void sil::listen(Socket socket, int backlog){
+bool sil::listen(Socket socket, int backlog){
   
   if(::listen(socket, backlog) == -1){
-    PrintError("Error setting passive socket via perror",
-                 "Error setting passive socket via strerror: %s (Code: %d)\n");
+    return false;
+  }else{
+    return true;
   }
 }
 
 bool sil::bind(sil::Socket socket, sil::SockAddr &address){
-   int result = -1;
-
-   result = ::bind(socket, reinterpret_cast<sockaddr*>(&address.addr), address.len);
-
-   if (result == -1) {
+   if (::bind(socket, reinterpret_cast<sockaddr*>(&address.addr), address.len) == -1 ) {
      return false;
    }else{
    return true;
@@ -182,9 +171,10 @@ sil::Socket sil::accept(sil::Socket socket, sil::SockAddr &address){
     if (socket_result == -1) {
         PrintError("Accept failed via perror",
                     "Accept failed via strerror: %s (Code %d)\n");
-        socket_result = sil::INVALID_SOCKET_HANDLE; 
-    }
+        return sil::INVALID_SOCKET_HANDLE; 
+    }else{
     return socket_result;
+    }
 }
 
 ssize_t sil::sendRawTo(Socket socket, const void *buf, size_t nbytes, SockAddr &addr, int flags){
@@ -292,10 +282,11 @@ ssize_t sil::recvRaw(sil::Socket socket, void *buf, size_t nbytes, int flags){
   }
 
 
-void sil::close(sil::Socket socket){
+bool sil::close(sil::Socket socket){
   if (::close(socket) == -1) {
-          PrintError("Socket closure failed via perror",
-                      "Socket closure failed via strerror: %s (Code %d)\n");
+    return false;
+  }else{
+    return true;
   }
 }
 
