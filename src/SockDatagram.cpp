@@ -41,50 +41,6 @@ Error invalidParameter()
   return Error{EError::PARAMETER_INVALID, 0};
 }
 
-int nativeOption(EOption op)
-{
-  switch (op)
-  {
-    case EOption::REUSE_ADDRESS:
-      return SO_REUSEADDR;
-    case EOption::BROADCAST:
-      return SO_BROADCAST;
-    default:
-      return -1;
-  }
-}
-
-Error setBoolOption(const SockDatagram& socket, int opt, bool value)
-{
-  if (opt < 0)
-    return invalidParameter();
-
-  const int native = value ? 1 : 0;
-  if (::setsockopt(socket.nativeHandle,
-                   SOL_SOCKET,
-                   opt,
-                   reinterpret_cast<const char*>(&native),
-                   sizeof(native)) == SOCKET_ERROR)
-    return fromWinsock();
-
-  return Error{};
-}
-
-Error setIntOption(const SockDatagram& socket, int opt, int value)
-{
-  if (opt < 0)
-    return invalidParameter();
-
-  if (::setsockopt(socket.nativeHandle,
-                   SOL_SOCKET,
-                   opt,
-                   reinterpret_cast<const char*>(&value),
-                   sizeof(value)) == SOCKET_ERROR)
-    return fromWinsock();
-
-  return Error{};
-}
-
 Error getAddressOfSocket(const SockDatagram& socket, SockAddr& address, bool peer)
 {
   //NOTE: clear() zeroes the storage and sets len() to the full capacity, which is
@@ -274,7 +230,7 @@ Error setOption(const SockDatagram& socket, EOption op, bool value)
   if (!isValid(socket))
     return invalidHandle();
 
-  return setBoolOption(socket, nativeOption(op), value);
+  return setOption(socket.nativeHandle, op, value);
 }
 
 Error getOption(const SockDatagram& socket, EOption op, bool& value)
@@ -284,21 +240,7 @@ Error getOption(const SockDatagram& socket, EOption op, bool& value)
   if (!isValid(socket))
     return invalidHandle();
 
-  const int opt = nativeOption(op);
-  if (opt < 0)
-    return invalidParameter();
-
-  int native = 0;
-  int length = sizeof(native);
-  if (::getsockopt(socket.nativeHandle,
-                   SOL_SOCKET,
-                   opt,
-                   reinterpret_cast<char*>(&native),
-                   &length) == SOCKET_ERROR)
-    return fromWinsock();
-
-  value = (native != 0);
-  return Error{};
+  return getOption(socket.nativeHandle, op, value);
 }
 
 Error setSendBufferSize(const SockDatagram& socket, size_t bytes)
@@ -306,10 +248,7 @@ Error setSendBufferSize(const SockDatagram& socket, size_t bytes)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (bytes > static_cast<size_t>(INT_MAX))
-    return Error{EError::PARAMETER_INVALID, 0};
-
-  return setIntOption(socket, SO_SNDBUF, static_cast<int>(bytes));
+  return setBufferSize(socket.nativeHandle, EBufferSize::SEND, bytes);
 }
 
 Error setReceiveBufferSize(const SockDatagram& socket, size_t bytes)
@@ -317,10 +256,7 @@ Error setReceiveBufferSize(const SockDatagram& socket, size_t bytes)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (bytes > static_cast<size_t>(INT_MAX))
-    return Error{EError::PARAMETER_INVALID, 0};
-
-  return setIntOption(socket, SO_RCVBUF, static_cast<int>(bytes));
+  return setBufferSize(socket.nativeHandle, EBufferSize::RECEIVE, bytes);
 }
 
 Error setSendTimeout(const SockDatagram& socket, int milliseconds)
@@ -328,10 +264,7 @@ Error setSendTimeout(const SockDatagram& socket, int milliseconds)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (milliseconds < 0)
-    return invalidParameter();
-
-  return setIntOption(socket, SO_SNDTIMEO, milliseconds);
+  return setTimeout(socket.nativeHandle, ETimeout::SEND, milliseconds);
 }
 
 Error setReceiveTimeout(const SockDatagram& socket, int milliseconds)
@@ -339,10 +272,7 @@ Error setReceiveTimeout(const SockDatagram& socket, int milliseconds)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (milliseconds < 0)
-    return invalidParameter();
-
-  return setIntOption(socket, SO_RCVTIMEO, milliseconds);
+  return setTimeout(socket.nativeHandle, ETimeout::RECEIVE, milliseconds);
 }
 
 Error setBlocking(const SockDatagram& socket, bool blocking)
@@ -422,59 +352,6 @@ Error invalidParameter()
 int fd(const SockDatagram& socket)
 {
   return static_cast<int>(socket.nativeHandle);
-}
-
-int nativeOption(EOption op)
-{
-  switch (op)
-  {
-    case EOption::REUSE_ADDRESS:
-      return SO_REUSEADDR;
-    case EOption::BROADCAST:
-      return SO_BROADCAST;
-    default:
-      return -1;
-  }
-}
-
-Error setBoolOption(const SockDatagram& socket, int opt, bool value)
-{
-  if (opt < 0)
-    return invalidParameter();
-
-  const int native = value ? 1 : 0;
-  if (::setsockopt(fd(socket), SOL_SOCKET, opt, &native, sizeof(native)) == -1)
-    return fromErrno();
-
-  return Error{};
-}
-
-Error setIntOption(const SockDatagram& socket, int opt, int value)
-{
-  if (opt < 0)
-    return invalidParameter();
-
-  if (::setsockopt(fd(socket), SOL_SOCKET, opt, &value, sizeof(value)) == -1)
-    return fromErrno();
-
-  return Error{};
-}
-
-//NOTE: posix timeouts are a timeval rather than the milliseconds winsock takes,
-//      so the value has to be split into whole seconds and leftover microseconds
-Error setTimevalOption(const SockDatagram& socket, int opt, int milliseconds)
-{
-  if (opt < 0)
-    return invalidParameter();
-
-  timeval value{};
-  value.tv_sec = milliseconds / 1000;
-  value.tv_usec = (milliseconds % 1000) * 1000;
-
-  if (::setsockopt(fd(socket), SOL_SOCKET, opt, &value, sizeof(value)) == -1)
-    return fromErrno();
-
-  return Error{};
 }
 
 Error getAddressOfSocket(const SockDatagram& socket, SockAddr& address, bool peer)
@@ -673,7 +550,7 @@ Error setOption(const SockDatagram& socket, EOption op, bool value)
   if (!isValid(socket))
     return invalidHandle();
 
-  return setBoolOption(socket, nativeOption(op), value);
+  return setOption(socket.nativeHandle, op, value);
 }
 
 Error getOption(const SockDatagram& socket, EOption op, bool& value)
@@ -683,17 +560,7 @@ Error getOption(const SockDatagram& socket, EOption op, bool& value)
   if (!isValid(socket))
     return invalidHandle();
 
-  const int opt = nativeOption(op);
-  if (opt < 0)
-    return invalidParameter();
-
-  int native = 0;
-  socklen_t length = sizeof(native);
-  if (::getsockopt(fd(socket), SOL_SOCKET, opt, &native, &length) == -1)
-    return fromErrno();
-
-  value = (native != 0);
-  return Error{};
+  return getOption(socket.nativeHandle, op, value);
 }
 
 Error setSendBufferSize(const SockDatagram& socket, size_t bytes)
@@ -701,10 +568,7 @@ Error setSendBufferSize(const SockDatagram& socket, size_t bytes)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (bytes > static_cast<size_t>(INT_MAX))
-    return Error{EError::PARAMETER_INVALID, 0};
-
-  return setIntOption(socket, SO_SNDBUF, static_cast<int>(bytes));
+  return setBufferSize(socket.nativeHandle, EBufferSize::SEND, bytes);
 }
 
 Error setReceiveBufferSize(const SockDatagram& socket, size_t bytes)
@@ -712,10 +576,7 @@ Error setReceiveBufferSize(const SockDatagram& socket, size_t bytes)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (bytes > static_cast<size_t>(INT_MAX))
-    return Error{EError::PARAMETER_INVALID, 0};
-
-  return setIntOption(socket, SO_RCVBUF, static_cast<int>(bytes));
+  return setBufferSize(socket.nativeHandle, EBufferSize::RECEIVE, bytes);
 }
 
 Error setSendTimeout(const SockDatagram& socket, int milliseconds)
@@ -723,10 +584,7 @@ Error setSendTimeout(const SockDatagram& socket, int milliseconds)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (milliseconds < 0)
-    return invalidParameter();
-
-  return setTimevalOption(socket, SO_SNDTIMEO, milliseconds);
+  return setTimeout(socket.nativeHandle, ETimeout::SEND, milliseconds);
 }
 
 Error setReceiveTimeout(const SockDatagram& socket, int milliseconds)
@@ -734,10 +592,7 @@ Error setReceiveTimeout(const SockDatagram& socket, int milliseconds)
   if (!isValid(socket))
     return invalidHandle();
 
-  if (milliseconds < 0)
-    return invalidParameter();
-
-  return setTimevalOption(socket, SO_RCVTIMEO, milliseconds);
+  return setTimeout(socket.nativeHandle, ETimeout::RECEIVE, milliseconds);
 }
 
 Error setBlocking(const SockDatagram& socket, bool blocking)

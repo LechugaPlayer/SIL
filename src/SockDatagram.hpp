@@ -7,14 +7,6 @@
 
 namespace sil {
 
-//NOTE: datagram only subset. Windows has no SO_REUSEPORT, and SO_KEEPALIVE is
-//      rejected with WSAENOPROTOOPT on a datagram socket, so neither is offered
-enum class EOption
-{
-  REUSE_ADDRESS,
-  BROADCAST
-};
-
 struct SockDatagram
 {
   Handle nativeHandle = INVALID_SOCKET_HANDLE;
@@ -46,6 +38,8 @@ Error getSockName(const SockDatagram& socket, SockAddr& address);
 //      connect() has been called
 Error getPeerName(const SockDatagram& socket, SockAddr& address);
 
+//NOTE: EOption is shared by every socket module and lives in utils.hpp, since
+//      which options a socket accepts is a question the os answers by itself
 Error setOption(const SockDatagram& socket, EOption op, bool value);
 Error getOption(const SockDatagram& socket, EOption op, bool& value);
 
