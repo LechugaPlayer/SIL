@@ -1,5 +1,6 @@
 ﻿#include "utils.hpp"
 
+#include <climits>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -22,6 +23,41 @@ Error parameterInvalid()
   return Error{EError::PARAMETER_INVALID, 0};
 }
 
+//NOTE: winsock reports failures through its own getter. GetLastError() is the
+//      win32 one and is regularly stale or zero here
+Error fromWinsock()
+{
+  const int value = ::WSAGetLastError();
+  return Error{MacroToEnum_Error(value), value};
+}
+
+//NOTE: a socket option is a level and a name, and TCP_NODELAY lives on
+//      IPPROTO_TCP while every other option here lives on SOL_SOCKET
+bool nativeOption(EOption op, int& level, int& option)
+{
+  switch (op)
+  {
+    case EOption::REUSE_ADDRESS:
+      level = SOL_SOCKET;
+      option = SO_REUSEADDR;
+      return true;
+    case EOption::BROADCAST:
+      level = SOL_SOCKET;
+      option = SO_BROADCAST;
+      return true;
+    case EOption::KEEP_ALIVE:
+      level = SOL_SOCKET;
+      option = SO_KEEPALIVE;
+      return true;
+    case EOption::NO_DELAY:
+      level = IPPROTO_TCP;
+      option = TCP_NODELAY;
+      return true;
+    default:
+      return false;
+  }
+}
+
 } // namespace
 
 Error init()
@@ -41,6 +77,69 @@ Error cleanup()
   const int value = ::WSACleanup();
   if (value != 0)
     return Error{MacroToEnum_Error(value), value};
+
+  return Error{};
+}
+
+Error setOption(Handle socket, EOption op, bool value)
+{
+  int level = 0;
+  int option = 0;
+  if (!nativeOption(op, level, option))
+    return parameterInvalid();
+
+  const int native = value ? 1 : 0;
+  if (::setsockopt(socket, level, option, reinterpret_cast<const char*>(&native), sizeof(native)) == SOCKET_ERROR)
+    return fromWinsock();
+
+  return Error{};
+}
+
+Error getOption(Handle socket, EOption op, bool& value)
+{
+  value = false;
+
+  int level = 0;
+  int option = 0;
+  if (!nativeOption(op, level, option))
+    return parameterInvalid();
+
+  int native = 0;
+  int length = sizeof(native);
+  if (::getsockopt(socket, level, option, reinterpret_cast<char*>(&native), &length) == SOCKET_ERROR)
+    return fromWinsock();
+
+  value = (native != 0);
+  return Error{};
+}
+
+Error setBufferSize(Handle socket, EBufferSize which, size_t bytes)
+{
+  //NOTE: the value handed to the os is an int, so a size that will not fit one
+  //      is refused instead of being silently narrowed
+  if (bytes > static_cast<size_t>(INT_MAX))
+    return parameterInvalid();
+
+  const int option = (which == EBufferSize::SEND) ? SO_SNDBUF : SO_RCVBUF;
+  const int value = static_cast<int>(bytes);
+
+  if (::setsockopt(socket, SOL_SOCKET, option, reinterpret_cast<const char*>(&value), sizeof(value)) == SOCKET_ERROR)
+    return fromWinsock();
+
+  return Error{};
+}
+
+Error setTimeout(Handle socket, ETimeout which, int milliseconds)
+{
+  if (milliseconds < 0)
+    return parameterInvalid();
+
+  //NOTE: winsock takes the timeout as whole milliseconds, no conversion needed
+  const int option = (which == ETimeout::SEND) ? SO_SNDTIMEO : SO_RCVTIMEO;
+  const int value = milliseconds;
+
+  if (::setsockopt(socket, SOL_SOCKET, option, reinterpret_cast<const char*>(&value), sizeof(value)) == SOCKET_ERROR)
+    return fromWinsock();
 
   return Error{};
 }
@@ -531,9 +630,13 @@ bool SockAddr::operator==(const SockAddr& other) const
 #include <arpa/inet.h>
 #include <cerrno>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 
+#include <climits>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -556,6 +659,33 @@ Error fromErrno()
   return Error{MacroToEnum_Error(value), value};
 }
 
+//NOTE: a socket option is a level and a name, and TCP_NODELAY lives on
+//      IPPROTO_TCP while every other option here lives on SOL_SOCKET
+bool nativeOption(EOption op, int& level, int& option)
+{
+  switch (op)
+  {
+    case EOption::REUSE_ADDRESS:
+      level = SOL_SOCKET;
+      option = SO_REUSEADDR;
+      return true;
+    case EOption::BROADCAST:
+      level = SOL_SOCKET;
+      option = SO_BROADCAST;
+      return true;
+    case EOption::KEEP_ALIVE:
+      level = SOL_SOCKET;
+      option = SO_KEEPALIVE;
+      return true;
+    case EOption::NO_DELAY:
+      level = IPPROTO_TCP;
+      option = TCP_NODELAY;
+      return true;
+    default:
+      return false;
+  }
+}
+
 } // namespace
 
 Error init()
@@ -567,6 +697,73 @@ Error init()
 
 Error cleanup()
 {
+  return Error{};
+}
+
+Error setOption(Handle socket, EOption op, bool value)
+{
+  int level = 0;
+  int option = 0;
+  if (!nativeOption(op, level, option))
+    return parameterInvalid();
+
+  const int native = value ? 1 : 0;
+  if (::setsockopt(socket, level, option, &native, sizeof(native)) == -1)
+    return fromErrno();
+
+  return Error{};
+}
+
+Error getOption(Handle socket, EOption op, bool& value)
+{
+  value = false;
+
+  int level = 0;
+  int option = 0;
+  if (!nativeOption(op, level, option))
+    return parameterInvalid();
+
+  int native = 0;
+  socklen_t length = sizeof(native);
+  if (::getsockopt(socket, level, option, &native, &length) == -1)
+    return fromErrno();
+
+  value = (native != 0);
+  return Error{};
+}
+
+Error setBufferSize(Handle socket, EBufferSize which, size_t bytes)
+{
+  //NOTE: the value handed to the os is an int, so a size that will not fit one
+  //      is refused instead of being silently narrowed
+  if (bytes > static_cast<size_t>(INT_MAX))
+    return parameterInvalid();
+
+  const int option = (which == EBufferSize::SEND) ? SO_SNDBUF : SO_RCVBUF;
+  const int value = static_cast<int>(bytes);
+
+  if (::setsockopt(socket, SOL_SOCKET, option, &value, sizeof(value)) == -1)
+    return fromErrno();
+
+  return Error{};
+}
+
+Error setTimeout(Handle socket, ETimeout which, int milliseconds)
+{
+  if (milliseconds < 0)
+    return parameterInvalid();
+
+  //NOTE: posix takes a timeval rather than the milliseconds winsock takes, so
+  //      the value has to be split into whole seconds and leftover microseconds
+  const int option = (which == ETimeout::SEND) ? SO_SNDTIMEO : SO_RCVTIMEO;
+
+  timeval value{};
+  value.tv_sec = milliseconds / 1000;
+  value.tv_usec = (milliseconds % 1000) * 1000;
+
+  if (::setsockopt(socket, SOL_SOCKET, option, &value, sizeof(value)) == -1)
+    return fromErrno();
+
   return Error{};
 }
 
@@ -666,6 +863,11 @@ EError MacroToEnum_Error(int error)
 
     case ECONNRESET:
     case ENETRESET:
+      return EError::CONNECTION_RESET;
+
+    //NOTE: posix reports a write to a peer that already closed as EPIPE, where
+    //      winsock reports WSAECONNRESET for the very same thing
+    case EPIPE:
       return EError::CONNECTION_RESET;
 
     case ECONNREFUSED:

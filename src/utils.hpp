@@ -55,6 +55,36 @@ enum class EType
   DATAGRAM
 };
 
+//NOTE: one enum for every socket module, so the mapping from an option to its
+//      native level is written once per platform instead of once per module.
+//      Which of them a given socket accepts is the os's business to answer:
+//      an option a socket will not take comes back as PROTOCOL_INVALID
+enum class EOption
+{
+  //NOTE: windows has no SO_REUSEPORT, so it is not offered. NO_DELAY is an
+  //      IPPROTO_TCP option, so a datagram socket refuses it with
+  //      PROTOCOL_INVALID, while SO_KEEP_ALIVE is a SOL_SOCKET option that linux
+  //      accepts on anything and windows refuses on a datagram
+  REUSE_ADDRESS,
+  BROADCAST,
+  KEEP_ALIVE,
+  NO_DELAY
+};
+
+//NOTE: the buffer and timeout options carry a value, so they cannot be expressed
+//      as a bool the way EOption is
+enum class EBufferSize
+{
+  SEND,
+  RECEIVE
+};
+
+enum class ETimeout
+{
+  SEND,
+  RECEIVE
+};
+
 enum class EError
 {
   //NOTE: not SUCCESS, raserror.h and mprerror.h both define that macro
@@ -198,5 +228,14 @@ int    EnumToMacro_Type(EType var);
 //      codes, posix has two: errno for the syscalls and the negative EAI_* codes
 //      getaddrinfo returns, and the sign tells them apart
 EError MacroToEnum_Error(int error);
+
+//NOTE: these four are shared by every socket module, which is why they are keyed
+//      on a Handle rather than on a SockDatagram or a SockStream. Each module
+//      keeps its own overload that takes its own socket type and validates it
+Error setOption(Handle socket, EOption op, bool value);
+Error getOption(Handle socket, EOption op, bool& value);
+Error setBufferSize(Handle socket, EBufferSize which, size_t bytes);
+//NOTE: milliseconds, 0 disables the timeout
+Error setTimeout(Handle socket, ETimeout which, int milliseconds);
 
 }
