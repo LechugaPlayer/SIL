@@ -18,7 +18,26 @@ more sockets, etc. The idea was to stop at stream and datagrams.
 
 
 ## Building
--link against Ws2_32.lib is required
+
+A C++20 compiler is required, `std::span` is part of the interface.
+
+`build.sh` builds everything into `build/`, from bash on Linux or from Git Bash or MSYS2 on Windows:
+
+```
+./build.sh          # build/libsil.a and the loopback test
+./build.sh test     # the same, then run the test
+./build.sh clean    # remove build/
+```
+
+The test exercises both socket types over `127.0.0.1`, so it needs no network. `CXX`, `AR` and
+`CXXFLAGS` are read from the environment, `CXX=clang++ ./build.sh test` for example.
+
+The script is only a convenience, compiling the three files in `src/` along with your own code is
+all it takes. On Windows a link against `Ws2_32.lib` is required:
+
+```
+g++ -std=c++20 -Isrc src/utils.cpp src/SockDatagram.cpp src/SockStream.cpp main.cpp -lws2_32
+```
 
 ## Design notes
 
