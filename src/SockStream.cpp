@@ -407,6 +407,29 @@ int fd(const SockStream& socket)
   return static_cast<int>(socket.nativeHandle);
 }
 
+//NOTE: a write to a peer that already closed raises SIGPIPE by default, which
+//      kills the process instead of returning an error. Linux turns that off per
+//      call with MSG_NOSIGNAL, macOS and the BSDs per socket with SO_NOSIGPIPE,
+//      and a system is free to offer both, so each one is used wherever it exists
+#ifdef MSG_NOSIGNAL
+constexpr int SEND_FLAGS = MSG_NOSIGNAL;
+#else
+constexpr int SEND_FLAGS = 0;
+#endif
+
+//NOTE: called on every descriptor the library hands out, from socket() and from
+//      accept(). The result is ignored on purpose: the option cannot be refused
+//      on a stream socket, and a socket that works is worth more than this
+void disableSigpipe(int descriptor)
+{
+#ifdef SO_NOSIGPIPE
+  const int enabled = 1;
+  (void)::setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));
+#else
+  (void)descriptor;
+#endif
+}
+
 Error getAddressOfSocket(const SockStream& socket, SockAddr& address, bool peer)
 {
   //NOTE: clear() zeroes the storage and sets len() to the full capacity, which is
@@ -454,6 +477,8 @@ Error socket(SockStream& socket, EFamily family)
     socket.family = EFamily::UNSPECIFIED;
     return fromErrno();
   }
+
+  disableSigpipe(handle);
 
   socket.nativeHandle = static_cast<Handle>(handle);
   socket.family = family;
@@ -528,6 +553,8 @@ Error accept(const SockStream& socket, SockStream& accepted, SockAddr& address)
     return fromErrno();
   }
 
+  disableSigpipe(handle);
+
   accepted.nativeHandle = static_cast<Handle>(handle);
   //NOTE: the accepted socket inherits the family of the listener, there is no
   //      second address to read it from
@@ -571,11 +598,11 @@ Error send(const SockStream& socket, const void* buf, size_t nbytes, int flags, 
   if (nbytes > static_cast<size_t>(INT_MAX))
     return Error{EError::MESSAGE_TOO_LARGE, 0};
 
-  //NOTE: MSG_NOSIGNAL is ored in because a write to a peer that already closed
-  //      raises SIGPIPE by default, which would kill the process instead of
-  //      returning an error. The caller's own flags are left untouched, and
-  //      windows needs no equivalent because WSAECONNRESET is already an error
-  const ssize_t sent = ::send(fd(socket), buf, nbytes, flags | MSG_NOSIGNAL);
+  //NOTE: SEND_FLAGS is what keeps SIGPIPE away where the system does it per call,
+  //      see disableSigpipe() for the other half. The caller's own flags are left
+  //      untouched, and windows needs no equivalent because WSAECONNRESET is
+  //      already an error
+  const ssize_t sent = ::send(fd(socket), buf, nbytes, flags | SEND_FLAGS);
   if (sent == -1)
     return fromErrno();
 
