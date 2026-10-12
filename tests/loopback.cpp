@@ -37,6 +37,21 @@ int failures = 0;
     }                                                                    \
   } while (0)
 
+//NOTE: for a call that is supposed to fail in one particular way. What it answered
+//      instead is printed, since on a new platform that is the whole question
+#define CHECK_CODE(expr, expected)                                       \
+  do                                                                     \
+  {                                                                      \
+    const sil::Error checked = (expr);                                   \
+    if (checked.code != (expected))                                      \
+    {                                                                    \
+      std::fprintf(stderr, "%s:%d: %s answered \"%s\" (code %d), expected \"%s\"\n", __FILE__, __LINE__, \
+                   #expr, sil::errorToString(checked.code), checked.valueCode,     \
+                   sil::errorToString(expected));                        \
+      ++failures;                                                        \
+    }                                                                    \
+  } while (0)
+
 void testAddress()
 {
   sil::SockAddr empty;
@@ -63,8 +78,8 @@ void testAddress()
 
   //NOTE: a null service is only meaningful for EFamily::LOCAL
   sil::SockAddr out;
-  CHECK(sil::SockAddr::resolve(out, "127.0.0.1", nullptr, sil::EFamily::IPV4, sil::EType::STREAM).code
-        == sil::EError::PARAMETER_INVALID);
+  CHECK_CODE(sil::SockAddr::resolve(out, "127.0.0.1", nullptr, sil::EFamily::IPV4, sil::EType::STREAM),
+             sil::EError::PARAMETER_INVALID);
   CHECK(!out.valid());
 }
 
@@ -79,11 +94,11 @@ void testInvalidSocket()
   CHECK(sil::toString(datagram) == "<invalid>");
   CHECK(sil::toString(stream) == "<invalid>");
 
-  CHECK(sil::bind(datagram, address).code == sil::EError::SOCKET_INVALID);
-  CHECK(sil::connect(stream, address).code == sil::EError::SOCKET_INVALID);
-  CHECK(sil::listen(stream, 1).code == sil::EError::SOCKET_INVALID);
-  CHECK(sil::close(datagram).code == sil::EError::SOCKET_INVALID);
-  CHECK(sil::close(stream).code == sil::EError::SOCKET_INVALID);
+  CHECK_CODE(sil::bind(datagram, address), sil::EError::SOCKET_INVALID);
+  CHECK_CODE(sil::connect(stream, address), sil::EError::SOCKET_INVALID);
+  CHECK_CODE(sil::listen(stream, 1), sil::EError::SOCKET_INVALID);
+  CHECK_CODE(sil::close(datagram), sil::EError::SOCKET_INVALID);
+  CHECK_CODE(sil::close(stream), sil::EError::SOCKET_INVALID);
 }
 
 void testDatagram()
@@ -94,7 +109,7 @@ void testDatagram()
   CHECK(sil::toString(socket) == "<unbound>");
 
   sil::SockAddr unresolved;
-  CHECK(sil::bind(socket, unresolved).code == sil::EError::ADDRESS_NOT_AVAILABLE);
+  CHECK_CODE(sil::bind(socket, unresolved), sil::EError::ADDRESS_NOT_AVAILABLE);
 
   sil::SockAddr local("127.0.0.1", 0, sil::EFamily::IPV4, sil::EType::DATAGRAM);
   CHECK_OK(sil::bind(socket, local));
@@ -109,14 +124,14 @@ void testDatagram()
 
   CHECK_OK(sil::setSendBufferSize(socket, 64 * 1024));
   CHECK_OK(sil::setReceiveBufferSize(socket, 64 * 1024));
-  CHECK(sil::setReceiveTimeout(socket, -1).code == sil::EError::PARAMETER_INVALID);
+  CHECK_CODE(sil::setReceiveTimeout(socket, -1), sil::EError::PARAMETER_INVALID);
   //NOTE: keeps a broken recvFrom from hanging the test instead of failing it
   CHECK_OK(sil::setReceiveTimeout(socket, 2000));
 
   int sent = 0;
   CHECK_OK(sil::sendTo(socket, "ping", 4, local, 0, sent));
   CHECK(sent == 4);
-  CHECK(sil::sendTo(socket, nullptr, 4, local, 0, sent).code == sil::EError::PARAMETER_INVALID);
+  CHECK_CODE(sil::sendTo(socket, nullptr, 4, local, 0, sent), sil::EError::PARAMETER_INVALID);
   CHECK(sent == 0);
 
   char buffer[64]{};
@@ -129,13 +144,13 @@ void testDatagram()
 
   //NOTE: with nothing queued, a non blocking socket answers AGAIN straight away
   CHECK_OK(sil::setNonBlocking(socket, true));
-  CHECK(sil::recvFrom(socket, buffer, sizeof(buffer), from, 0, received).code == sil::EError::AGAIN);
+  CHECK_CODE(sil::recvFrom(socket, buffer, sizeof(buffer), from, 0, received), sil::EError::AGAIN);
   CHECK(received == 0);
   CHECK(!from.valid());
 
   CHECK_OK(sil::close(socket));
   CHECK(!sil::isValid(socket));
-  CHECK(sil::close(socket).code == sil::EError::SOCKET_INVALID);
+  CHECK_CODE(sil::close(socket), sil::EError::SOCKET_INVALID);
 }
 
 void testStream()
@@ -146,7 +161,7 @@ void testStream()
 
   sil::SockAddr local("127.0.0.1", 0, sil::EFamily::IPV4, sil::EType::STREAM);
   CHECK_OK(sil::bind(listener, local));
-  CHECK(sil::listen(listener, -1).code == sil::EError::PARAMETER_INVALID);
+  CHECK_CODE(sil::listen(listener, -1), sil::EError::PARAMETER_INVALID);
   CHECK_OK(sil::listen(listener, 4));
   CHECK_OK(sil::getSockName(listener, local));
   CHECK(local.port() != 0);
@@ -155,7 +170,7 @@ void testStream()
   CHECK_OK(sil::socket(client, sil::EFamily::IPV4));
 
   sil::SockAddr none;
-  CHECK(sil::getPeerName(client, none).code == sil::EError::NOT_CONNECTED);
+  CHECK_CODE(sil::getPeerName(client, none), sil::EError::NOT_CONNECTED);
   CHECK(!none.valid());
 
   CHECK_OK(sil::connect(client, local));
@@ -228,25 +243,28 @@ void testStream()
   CHECK_OK(sil::close(client));
   CHECK_OK(sil::close(server));
   CHECK_OK(sil::close(listener));
-  CHECK(sil::close(listener).code == sil::EError::SOCKET_INVALID);
+  CHECK_CODE(sil::close(listener), sil::EError::SOCKET_INVALID);
 }
 
 void testConnectionRefused()
 {
-  //NOTE: bound but never listening, which is a port nothing can be connected to
+  //NOTE: a port the os just handed out and that was closed again is the nearest
+  //      thing to a port known to be free. Keeping it bound without listening is
+  //      not the same: linux and windows refuse that connection, macOS lets it
+  //      time out instead
   sil::SockStream holder;
   CHECK_OK(sil::socket(holder, sil::EFamily::IPV4));
 
   sil::SockAddr local("127.0.0.1", 0, sil::EFamily::IPV4, sil::EType::STREAM);
   CHECK_OK(sil::bind(holder, local));
   CHECK_OK(sil::getSockName(holder, local));
+  CHECK_OK(sil::close(holder));
 
   sil::SockStream client;
   CHECK_OK(sil::socket(client, sil::EFamily::IPV4));
-  CHECK(sil::connect(client, local).code == sil::EError::CONNECTION_REFUSED);
+  CHECK_CODE(sil::connect(client, local), sil::EError::CONNECTION_REFUSED);
 
   CHECK_OK(sil::close(client));
-  CHECK_OK(sil::close(holder));
 }
 
 } // namespace
