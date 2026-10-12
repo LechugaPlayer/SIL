@@ -681,6 +681,61 @@ Error fromErrno()
   return Error{MacroToEnum_Error(value), value};
 }
 
+//NOTE: maps what getaddrinfo returns. It is kept apart from the errno mapping
+//      because the two sets of numbers overlap outside of linux, and the codes
+//      that only some systems define are named only where they exist
+EError addrInfoError(int error)
+{
+  switch (error)
+  {
+    case EAI_NONAME:
+      return EError::DNS_HOST_NOT_FOUND;
+
+#ifdef EAI_NODATA
+    case EAI_NODATA:
+      return EError::DNS_NO_DATA;
+#endif
+
+    case EAI_AGAIN:
+      return EError::DNS_TRY_AGAIN;
+
+    case EAI_FAIL:
+      return EError::DNS_NO_RECOVERY;
+
+#ifdef EAI_INPROGRESS
+    case EAI_INPROGRESS:
+      return EError::OPERATION_IN_PROGRESS;
+#endif
+
+    case EAI_FAMILY:
+#ifdef EAI_ADDRFAMILY
+    case EAI_ADDRFAMILY:
+#endif
+      return EError::ADDRESS_FAMILY_UNSUPPORTED;
+
+    case EAI_SOCKTYPE:
+      return EError::SOCKET_TYPE_UNSUPPORTED;
+
+    case EAI_SERVICE:
+    case EAI_BADFLAGS:
+      return EError::PARAMETER_INVALID;
+
+    case EAI_MEMORY:
+      return EError::NO_MEMORY;
+
+    case EAI_OVERFLOW:
+      return EError::NAME_TOO_LONG;
+
+    //NOTE: EAI_SYSTEM only says that a syscall underneath failed, resolve()
+    //      reads errno for those instead of going through here
+    case EAI_SYSTEM:
+      return EError::UNKNOWN;
+
+    default:
+      return EError::UNKNOWN;
+  }
+}
+
 //NOTE: a socket option is a level and a name, and TCP_NODELAY lives on
 //      IPPROTO_TCP while every other option here lives on SOL_SOCKET
 bool nativeOption(EOption op, int& level, int& option)
@@ -821,57 +876,18 @@ int EnumToMacro_Type(EType var)
 
 EError MacroToEnum_Error(int error)
 {
-  //NOTE: posix has two error namespaces. getaddrinfo reports through EAI_*, which
-  //      is always negative, while errno is always positive, so the sign is all
-  //      it takes to tell them apart
+  //NOTE: posix has two error namespaces. On linux getaddrinfo reports through
+  //      EAI_* codes that are always negative, while errno is always positive, so
+  //      the sign is all it takes to tell them apart. macOS and the BSDs number
+  //      EAI_* from 1 upwards, right on top of errno, so there a lone int cannot
+  //      say which one it is and anything handed to this function is an errno.
+  //      resolve() knows where its code came from and never depends on the sign
   if (error < 0)
-  {
-    switch (error)
-    {
-      case EAI_NONAME:
-        return EError::DNS_HOST_NOT_FOUND;
+    return addrInfoError(error);
 
-      case EAI_NODATA:
-        return EError::DNS_NO_DATA;
-
-      case EAI_AGAIN:
-        return EError::DNS_TRY_AGAIN;
-
-      case EAI_FAIL:
-        return EError::DNS_NO_RECOVERY;
-
-      case EAI_INPROGRESS:
-        return EError::OPERATION_IN_PROGRESS;
-
-      case EAI_FAMILY:
-      case EAI_ADDRFAMILY:
-        return EError::ADDRESS_FAMILY_UNSUPPORTED;
-
-      case EAI_SOCKTYPE:
-        return EError::SOCKET_TYPE_UNSUPPORTED;
-
-      case EAI_SERVICE:
-      case EAI_BADFLAGS:
-        return EError::PARAMETER_INVALID;
-
-      case EAI_MEMORY:
-        return EError::NO_MEMORY;
-
-      case EAI_OVERFLOW:
-        return EError::NAME_TOO_LONG;
-
-      //NOTE: EAI_SYSTEM only says that a syscall underneath failed, resolve()
-      //      reads errno for those instead of going through here
-      case EAI_SYSTEM:
-        return EError::UNKNOWN;
-
-      default:
-        return EError::UNKNOWN;
-    }
-  }
-
-  //NOTE: EWOULDBLOCK is EAGAIN and ENOTSUP is EOPNOTSUPP on posix, so naming
-  //      both of either pair would be a duplicate case label
+  //NOTE: EWOULDBLOCK is EAGAIN on every posix system, so naming both would be a
+  //      duplicate case label. ENOTSUP is EOPNOTSUPP on linux but its own value on
+  //      macOS, which is why that one is named below only where it is distinct
   switch (error)
   {
     case 0:
@@ -958,6 +974,9 @@ EError MacroToEnum_Error(int error)
       return EError::SOCKET_TYPE_UNSUPPORTED;
 
     case EOPNOTSUPP:
+#if ENOTSUP != EOPNOTSUPP
+    case ENOTSUP:
+#endif
       return EError::OPERATION_NOT_SUPPORTED;
 
     case EISCONN:
@@ -1145,7 +1164,7 @@ Error SockAddr::resolve(SockAddr& out, const char* host, const char* service, EF
     if (error == EAI_SYSTEM)
       return fromErrno();
 
-    return Error{MacroToEnum_Error(error), error};
+    return Error{addrInfoError(error), error};
   }
 
   if (result == nullptr)

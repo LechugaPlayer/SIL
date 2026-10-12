@@ -1,7 +1,7 @@
 # SIL
 
 SIL (simple internet library) is a project made to learn about networking, API design, and C++ while
-providing a thin abstraction to support both Linux and Windows.
+providing a thin abstraction to support Linux, macOS and Windows.
 
 The library will support most fundamental features needed for networking. This project was chosen because
 both windows and linux implementations are based on BSD, making it reasonably easy to abstract concepts,
@@ -76,14 +76,20 @@ g++ -std=c++20 -Isrc src/utils.cpp src/SockDatagram.cpp src/SockStream.cpp main.
   (or not) while the other platform does the opposite.
   Windows has one set of `WSA*` codes read through `WSAGetLastError()`.
   POSIX has two: `errno` for the syscalls, always positive, and the `EAI_*` codes `getaddrinfo`
-  returns, always negative. `MacroToEnum_Error` maps both, and the sign is what tells them apart.
+  returns. On Linux those are always negative, so `MacroToEnum_Error` maps both and the sign is what
+  tells them apart. macOS numbers `EAI_*` from 1 upwards, right on top of `errno`, so there the sign
+  says nothing: `resolve` maps its own codes without looking at it, and whatever is handed to
+  `MacroToEnum_Error` is read as an `errno`. For the same reason the raw `valueCode` of a failed
+  `resolve` on macOS cannot be told from an `errno` by its value alone.
   `EAI_SYSTEM` is the one `getaddrinfo` code that defers to `errno`, so `resolve` reads `errno`
   for it instead of going through the conversion.
 - **An expired timeout is `EAGAIN`,** which is exactly what an empty non-blocking queue reports, so
   POSIX cannot tell the two apart and both surface as `EError::AGAIN`. Windows reports
   `WSAETIMEDOUT` and therefore `EError::TIMED_OUT`.
-- **`MSG_NOSIGNAL` is added to `send` on POSIX.** Without it a write to a peer that already closed
-  raises `SIGPIPE`, which kills the process instead of returning an error. `EPIPE` maps to
+- **`SIGPIPE` is turned off on POSIX.** Without that a write to a peer that already closed raises
+  it, which kills the process instead of returning an error. Linux does it per call, so
+  `MSG_NOSIGNAL` is added to `send`. macOS does it per socket, so `SO_NOSIGPIPE` is set on every
+  stream that `socket` and `accept` hand out. Each one is used wherever it exists. `EPIPE` maps to
   `EError::CONNECTION_RESET`, the same as `ECONNRESET`, so both platforms report one thing for a
   broken connection. The caller's own `flags` are left untouched.
 - **A zero-length `recv` on a blocking stream is not a no-op on POSIX,** it waits for the pipe to
@@ -102,10 +108,12 @@ g++ -std=c++20 -Isrc src/utils.cpp src/SockDatagram.cpp src/SockStream.cpp main.
   descriptor.
 - **`AF_UNIX` datagrams exist only on POSIX.** Windows implements `AF_UNIX` for streams alone, so
   `SockAddr::resolve` refuses an `AF_UNIX` datagram there and accepts it everywhere else.
-- **A datagram socket refuses `NO_DELAY` on both platforms,** since it is an `IPPROTO_TCP` option,
-  but not in the same words: POSIX blames the protocol (`PROTOCOL_INVALID`) and Windows checks the
-  option against the socket type and blames the argument (`PARAMETER_INVALID`). `SO_KEEPALIVE` is a
-  `SOL_SOCKET` option that Linux accepts on anything and Windows refuses on a datagram.
+- **A datagram socket refuses `NO_DELAY` on every platform,** since it is an `IPPROTO_TCP` option,
+  but not in the same words: Linux blames the protocol (`PROTOCOL_INVALID`), while macOS and
+  Windows blame the argument (`PARAMETER_INVALID`). `SO_KEEPALIVE` is a `SOL_SOCKET` option that
+  Linux and macOS accept on anything and Windows refuses on a datagram.
+- **A connection to a port that is bound but not listening** is refused on Linux and Windows
+  (`CONNECTION_REFUSED`). macOS lets it time out instead (`TIMED_OUT`).
 - **`EError::NOT_INITIALIZED` has no POSIX counterpart,** since `init()` has nothing to do.
 
 ## Example

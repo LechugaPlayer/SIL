@@ -225,8 +225,10 @@ private:
 int    EnumToMacro_Family(EFamily var);
 int    EnumToMacro_Type(EType var);
 //NOTE: maps a native error macro to EError. Windows has one namespace of WSA*
-//      codes, posix has two: errno for the syscalls and the negative EAI_* codes
-//      getaddrinfo returns, and the sign tells them apart
+//      codes, posix has two: errno for the syscalls and the EAI_* codes
+//      getaddrinfo returns. On linux those are negative and the sign tells them
+//      apart. On macOS they overlap with errno, so there this reads every value
+//      as an errno and SockAddr::resolve maps its own codes itself
 EError MacroToEnum_Error(int error);
 
 //NOTE: these four are shared by every socket module, which is why they are keyed
