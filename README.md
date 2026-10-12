@@ -3,17 +3,17 @@
 SIL (simple internet library) is a project made to learn about networking, API design, and C++ while
 providing a thin abstraction to support both Linux and Windows.
 
-The library will support most fundamentals features needed for networking. This project was chosen because
+The library will support most fundamental features needed for networking. This project was chosen because
 both windows and linux implementations are based on BSD, making it reasonably easy to abstract concepts,
 making the learning process easier.
 
 
 ## Status
 The library is considered to be finished, for now I won't be updating it anymore, from here more features
-could be implemented but those features are not strictly related to netwkorking, they just make it easier
+could be implemented but those features are not strictly related to networking, they just make it easier
 to deal with it, such as providing a concurrency model, async operations, etc.
 
-There are many features from netwroking left behind such as not providing raw sockets, protocols,
+There are many features from networking left behind such as not providing raw sockets, protocols,
 more sockets, etc. The idea was to stop at stream and datagrams.
 
 
@@ -24,7 +24,7 @@ more sockets, etc. The idea was to stop at stream and datagrams.
 
 - `Handle` is 'uintptr_t' on Windows and `intptr_t` on POSIX, so on both it is exactly what
   the OS calls return. An invalid handle is `-1` everywhere because on windows is set as the
-   highest value, which `-1` is equal to because it underflows and linux expect exactly `-1`.
+  highest value, which `-1` is equal to because it underflows and linux expects exactly `-1`.
 - `SockAddr` is the only type that owns OS data, and it is the only one that includes an OS
   struct. It is `sockaddr_storage` internally, and the library never owns it.
 - **No OS type appears in any signature.** An address is handed around as
@@ -44,17 +44,17 @@ more sockets, etc. The idea was to stop at stream and datagrams.
   socket accepts is the OS's business to answer: an option the socket will not take comes back as
   `EError::PROTOCOL_INVALID`. Windows has no `SO_REUSEPORT`, so it is not offered.
 - `SockStream` names `shutWrite`, `shutRead` and `shut` instead of taking a `how` parameter because
-  I considered that to be more approrpiate.
-- `send` and `recv` on a stream report how many bytes moved and never loop, a looping functions might be
+  I considered that to be more appropriate.
+- `send` and `recv` on a stream report how many bytes moved and never loop, a looping function might be
   beneficial to handle partial reads/writes but it was left to the user.
 
 
 ### Where the two platforms differ
 
-- **Error namespaces.** This turned to be one of the biggest differences, the idea was to use enums
-  to handle errors and mape them to a common value. This turned out being a bit painful to worki with
-  because both platforms differs on number of errors, some system calls fail differently or the handle it
-  (or not) while th other platform does the opposite.
+- **Error namespaces.** This turned out to be one of the biggest differences, the idea was to use enums
+  to handle errors and map them to a common value. This turned out being a bit painful to work with
+  because both platforms differ on number of errors, some system calls fail differently or they handle it
+  (or not) while the other platform does the opposite.
   Windows has one set of `WSA*` codes read through `WSAGetLastError()`.
   POSIX has two: `errno` for the syscalls, always positive, and the `EAI_*` codes `getaddrinfo`
   returns, always negative. `MacroToEnum_Error` maps both, and the sign is what tells them apart.
