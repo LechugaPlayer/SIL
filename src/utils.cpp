@@ -590,6 +590,28 @@ std::string SockAddr::toString() const
   if (!valid())
     return "<unresolved>";
 
+  //NOTE: an AF_UNIX address is a path, it has no host and no port for getnameinfo
+  //      to print, and winsock refuses the family outright. The path is read out of
+  //      the storage instead, bounded by len() because sun_path is not required to
+  //      carry a terminator. A socket that was never bound has no path at all
+  if (static_cast<int>(storage.ss_family) == AF_UNIX)
+  {
+    const int pathOffset = static_cast<int>(offsetof(sockaddr_un, sun_path));
+    if (len() <= pathOffset)
+      return "<unnamed>";
+
+    const char* path = reinterpret_cast<const sockaddr_un*>(&storage)->sun_path;
+    const size_t limit = static_cast<size_t>(len() - pathOffset);
+    const void* terminator = std::memchr(path, '\0', limit);
+    const size_t pathLength = (terminator != nullptr)
+                                  ? static_cast<size_t>(static_cast<const char*>(terminator) - path)
+                                  : limit;
+    if (pathLength == 0)
+      return "<unnamed>";
+
+    return std::string(path, pathLength);
+  }
+
   char host[NI_MAXHOST]{};
   char service[NI_MAXSERV]{};
 
@@ -1251,6 +1273,28 @@ std::string SockAddr::toString() const
 {
   if (!valid())
     return "<unresolved>";
+
+  //NOTE: an AF_UNIX address is a path, it has no host and no port for getnameinfo
+  //      to print, and winsock refuses the family outright. The path is read out of
+  //      the storage instead, bounded by len() because sun_path is not required to
+  //      carry a terminator. A socket that was never bound has no path at all
+  if (static_cast<int>(storage.ss_family) == AF_UNIX)
+  {
+    const int pathOffset = static_cast<int>(offsetof(sockaddr_un, sun_path));
+    if (len() <= pathOffset)
+      return "<unnamed>";
+
+    const char* path = reinterpret_cast<const sockaddr_un*>(&storage)->sun_path;
+    const size_t limit = static_cast<size_t>(len() - pathOffset);
+    const void* terminator = std::memchr(path, '\0', limit);
+    const size_t pathLength = (terminator != nullptr)
+                                  ? static_cast<size_t>(static_cast<const char*>(terminator) - path)
+                                  : limit;
+    if (pathLength == 0)
+      return "<unnamed>";
+
+    return std::string(path, pathLength);
+  }
 
   char host[NI_MAXHOST]{};
   char service[NI_MAXSERV]{};
