@@ -18,7 +18,28 @@ more sockets, etc. The idea was to stop at stream and datagrams.
 
 
 ## Building
--link against Ws2_32.lib is required
+
+A C++20 compiler is required, `std::span` is part of the interface.
+
+With CMake:
+
+```
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+That builds the static library `sil` and a loopback test that exercises both socket types over
+`127.0.0.1`. To use the library from another CMake project, add it with `add_subdirectory` and link
+against `sil::sil`, the tests are left out in that case. `-DSIL_BUILD_TESTS=OFF` leaves them out
+of a standalone build too.
+
+Without CMake, compile the three files in `src/` along with your own code. On Windows a link against
+`Ws2_32.lib` is required:
+
+```
+g++ -std=c++20 -Isrc src/utils.cpp src/SockDatagram.cpp src/SockStream.cpp main.cpp -lws2_32
+```
 
 ## Design notes
 
